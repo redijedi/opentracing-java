@@ -13,16 +13,16 @@
  */
 package io.opentracing.util;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import io.opentracing.ActiveSpan;
-import io.opentracing.noop.NoopTracer;
-import io.opentracing.noop.NoopTracerFactory;
 import io.opentracing.Span;
 import io.opentracing.SpanContext;
 import io.opentracing.Tracer;
+import io.opentracing.noop.NoopTracer;
+import io.opentracing.noop.NoopTracerFactory;
 import io.opentracing.propagation.Format;
-
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Global tracer that forwards all methods to another tracer that can be
@@ -123,6 +123,17 @@ public final class GlobalTracer implements Tracer {
         return !(GlobalTracer.tracer instanceof NoopTracer);
     }
 
+    public static synchronized Tracer getOrRegister(TracerSupplier tracerSupplier) {
+        Tracer tracer;
+        if (isRegistered()) {
+            tracer = get();
+        } else {
+            tracer = tracerSupplier.get();
+            register(tracer);
+        }
+        return tracer;
+    }
+
     @Override
     public SpanBuilder buildSpan(String operationName) {
         return tracer.buildSpan(operationName);
@@ -152,4 +163,11 @@ public final class GlobalTracer implements Tracer {
     public ActiveSpan makeActive(Span span) {
         return tracer.makeActive(span);
     }
+
+    public interface TracerSupplier {
+        
+        Tracer get();
+        
+    }
+
 }
