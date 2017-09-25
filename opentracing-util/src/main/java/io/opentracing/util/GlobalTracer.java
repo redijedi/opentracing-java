@@ -13,16 +13,16 @@
  */
 package io.opentracing.util;
 
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 import io.opentracing.ActiveSpan;
+import io.opentracing.noop.NoopTracer;
+import io.opentracing.noop.NoopTracerFactory;
 import io.opentracing.Span;
 import io.opentracing.SpanContext;
 import io.opentracing.Tracer;
-import io.opentracing.noop.NoopTracer;
-import io.opentracing.noop.NoopTracerFactory;
 import io.opentracing.propagation.Format;
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Global tracer that forwards all methods to another tracer that can be
@@ -123,15 +123,29 @@ public final class GlobalTracer implements Tracer {
         return !(GlobalTracer.tracer instanceof NoopTracer);
     }
 
-    public static synchronized Tracer getOrRegister(TracerSupplier tracerSupplier) {
-        Tracer tracer;
-        if (isRegistered()) {
-            tracer = get();
-        } else {
-            tracer = tracerSupplier.get();
-            register(tracer);
+    /**
+     * Retrieves the {@link GlobalTracer} constant if one has been backed by an implementation or optionally registers, and returns, a {@link Tracer} 
+     * via the supplier provided if there has been no backing implementation registered.
+     * <p>
+     * This method is provided to help prevent race conditions that can take place when calling {@link #isRegistered()} as a condition before calling 
+     * {@link #register(Tracer)}. While these methods are themselves synchronized there is a space for a race condition to occur when doing so between
+     * threads. Therefore, in the worst case it will add overhead for synchronization on the class. However the average case would only incur the cost
+     * of calling {@link #isRegistered()} before returning an instance.
+     *
+     * @param tracerSupplier
+     * @return The global tracer constant with backing implementation.
+     */
+    public static Tracer getOrRegister(TracerSupplier tracerSupplier) {
+        if (!isRegistered()) {
+            synchronized (GlobalTracer.class) {
+                Tracer tempTracer = get(); // force read
+                if (!isRegistered()) {
+                    tempTracer = tracerSupplier.get();
+                    register(tempTracer);
+                }
+            }
         }
-        return tracer;
+        return get();
     }
 
     @Override
@@ -164,10 +178,22 @@ public final class GlobalTracer implements Tracer {
         return tracer.makeActive(span);
     }
 
+    /**
+     * This interface provides a simply means of deferring the retrieval of a {@link Tracer} instance for the 
+     * {@link GlobalTracer#getOrRegister(TracerSupplier)} until it can be determined whether an instance has been registered yet.
+     * <p>
+     */
+    /*
+     * Developer note: This is a single-method interface to allow for support in Java 8+ environments. The @FunctionalInterface annotation was omitted
+     * to allow for backwards compatibility, but it should be noted that adding additional methods would defeat its lambda usage.
+     */
     public interface TracerSupplier {
-        
+
+        /**
+         * @return A tracer implementation to use as a backing instance for the {@link GlobalTracer}.
+         */
         Tracer get();
-        
+
     }
 
 }
